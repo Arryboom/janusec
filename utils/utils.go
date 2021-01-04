@@ -8,13 +8,16 @@
 package utils
 
 import (
-	"fmt"
 	"log"
+	"os"
+	"regexp"
 	"strings"
+	"time"
 )
 
-const (
-	Debug = false
+var (
+	logger *log.Logger
+	Debug  = false
 )
 
 func CheckError(msg string, err error) {
@@ -23,14 +26,62 @@ func CheckError(msg string, err error) {
 	}
 }
 
+func InitLogger() {
+	logFilename := "./log/janusec" + time.Now().Format("20060102") + ".log"
+	logFile, err := os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		CheckError("InitLogger", err)
+		os.Exit(1)
+	}
+	logger = log.New(logFile, "[Janusec] ", log.LstdFlags)
+}
+
 func GetDirAll(path string) string {
 	i := strings.LastIndex(path, "/")
 	dirAll := path[:i]
 	return dirAll
 }
 
+// GetRoutePath return `/abc/` if path = `/abc/xyz/1.php` , return `/` if path = `/abc?id=1`
+func GetRoutePath(path string) string {
+	regex, _ := regexp.Compile(`^/(\w+/)?`)
+	routePath := regex.FindString(path)
+	return routePath
+}
+
+// DebugPrintln used for log of error
 func DebugPrintln(a ...interface{}) {
 	if Debug {
-		fmt.Println(a)
+		log.Println(a)
+	} else {
+		logger.Println(a)
+	}
+}
+
+// AccessLog record log for each application
+func AccessLog(domain string, method string, ip string, url string, ua string) {
+	now := time.Now()
+	f, err := os.OpenFile("./log/"+domain+now.Format("20060102")+".log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		log.Printf("error opening file: %s\n", err.Error())
+	}
+	log.SetOutput(f)
+	log.Printf("[%s] %s [%s] UA:[%s]\n", ip, method, url, ua)
+	if err := f.Close(); err != nil {
+		log.Printf("error closing file: %s\n", err.Error())
+	}
+}
+
+// VipAccessLog record logs of port forwarding
+func VipAccessLog(name string, clientAddr string, gateAddr string, backendAddr string) {
+	now := time.Now()
+	f, err := os.OpenFile("./log/PortForwarding"+now.Format("20060102")+".log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		log.Printf("error opening file: %s\n", err.Error())
+	}
+	log.SetOutput(f)
+	log.Printf("[%s] [%s] -> [%s] -> [%s]\n", name, clientAddr, gateAddr, backendAddr)
+	if err := f.Close(); err != nil {
+		log.Printf("error closing file: %s\n", err.Error())
 	}
 }

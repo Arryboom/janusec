@@ -10,21 +10,21 @@ package firewall
 import (
 	"encoding/json"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
 )
 
 // RPCSelectGroupPolicies ...
 func RPCSelectGroupPolicies() (groupPolicies []*models.GroupPolicy) {
 	rpcRequest := &models.RPCRequest{
-		Action: "getgrouppolicies", Object: nil}
-	resp, err := data.GetResponse(rpcRequest)
+		Action: "get_group_policies", Object: nil}
+	resp, err := data.GetRPCResponse(rpcRequest)
 	if err != nil {
 		utils.CheckError("RPCSelectGroupPolicies GetResponse", err)
 		return nil
 	}
-	rpcGroupPolicies := new(models.RPCGroupPolicies)
+	rpcGroupPolicies := &models.RPCGroupPolicies{}
 	if err := json.Unmarshal(resp, rpcGroupPolicies); err != nil {
 		utils.CheckError("RPCSelectGroupPolicies Unmarshal", err)
 		return nil

@@ -8,15 +8,15 @@
 package data
 
 import (
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/models"
+	"janusec/utils"
 )
 
 const (
-	sqlCreateTableIfNotExistsVulnType = `CREATE TABLE IF NOT EXISTS vulntypes(id bigint primary key,name varchar(128))`
-	sqlExistsVulnType                 = `SELECT coalesce((SELECT 1 FROM vulntypes LIMIT 1),0)`
-	sqlInsertVulnType                 = `INSERT INTO vulntypes(id,name) values($1,$2)`
-	sqlSelectVulnTypes                = `SELECT id,name FROM vulntypes`
+	sqlCreateTableIfNotExistsVulnType = `CREATE TABLE IF NOT EXISTS "vulntypes"("id" bigint primary key,"name" VARCHAR(128))`
+	sqlExistsVulnType                 = `SELECT COALESCE((SELECT 1 FROM "vulntypes" LIMIT 1),0)`
+	sqlInsertVulnType                 = `INSERT INTO "vulntypes"("id","name") VALUES($1,$2)`
+	sqlSelectVulnTypes                = `SELECT "id","name" FROM "vulntypes"`
 )
 
 func (dal *MyDAL) CreateTableIfNotExistsVulnType() error {
@@ -35,12 +35,13 @@ func (dal *MyDAL) ExistsVulnType() bool {
 	}
 }
 
-func (dal *MyDAL) SelectVulnTypes() (vulnTypes []*models.VulnType, err error) {
+func (dal *MyDAL) SelectVulnTypes() ([]*models.VulnType, error) {
+	vulnTypes := []*models.VulnType{}
 	rows, err := dal.db.Query(sqlSelectVulnTypes)
 	utils.CheckError("SelectVulnTypes", err)
 	defer rows.Close()
 	for rows.Next() {
-		vulnType := new(models.VulnType)
+		vulnType := &models.VulnType{}
 		err = rows.Scan(&vulnType.ID, &vulnType.Name)
 		utils.CheckError("SelectVulnTypes rows.Scan", err)
 		if err != nil {

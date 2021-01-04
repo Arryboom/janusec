@@ -10,21 +10,21 @@ package firewall
 import (
 	"encoding/json"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
 )
 
 // RPCSelectVulntypes ...
 func RPCSelectVulntypes() (vulnTypes []*models.VulnType) {
 	rpcRequest := &models.RPCRequest{
-		Action: "getvulntypes", Object: nil}
-	resp, err := data.GetResponse(rpcRequest)
+		Action: "get_vuln_types", Object: nil}
+	resp, err := data.GetRPCResponse(rpcRequest)
 	if err != nil {
 		utils.CheckError("RPCSelectVulntypes GetResponse", err)
 		return nil
 	}
-	rpcVulnTypes := new(models.RPCVulntypes)
+	rpcVulnTypes := &models.RPCVulntypes{}
 	if err := json.Unmarshal(resp, rpcVulnTypes); err != nil {
 		utils.CheckError("RPCSelectVulntypes Unmarshal", err)
 		return nil

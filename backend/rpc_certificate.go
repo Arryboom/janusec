@@ -11,23 +11,24 @@ import (
 	"crypto/tls"
 	"encoding/json"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
 )
 
-func RPCSelectCertificates() (certs []*models.CertItem) {
+func RPCSelectCertificates() []*models.CertItem {
+	certs := []*models.CertItem{}
 	rpcRequest := &models.RPCRequest{
-		Action: "getcerts", Object: nil}
-	resp, err := data.GetResponse(rpcRequest)
+		Action: "get_certs", Object: nil}
+	resp, err := data.GetRPCResponse(rpcRequest)
 	if err != nil {
 		utils.CheckError("RPCSelectCertificates GetResponse", err)
-		return nil
+		return certs
 	}
-	rpcCertItems := new(models.RPCCertItems)
+	rpcCertItems := &models.RPCCertItems{}
 	if err = json.Unmarshal(resp, rpcCertItems); err != nil {
 		utils.CheckError("RPCSelectCertificates Unmarshal", err)
-		return nil
+		return certs
 	}
 	certItems := rpcCertItems.Object
 	for _, certItem := range certItems {

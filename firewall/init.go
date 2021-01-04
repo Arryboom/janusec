@@ -8,7 +8,7 @@
 package firewall
 
 import (
-	"github.com/Janusec/janusec/models"
+	"janusec/models"
 )
 
 // InitFirewall ...
@@ -26,5 +26,7 @@ func InitFirewall() {
 	InitGroupPolicy()
 	LoadCheckItems()
 	InitHitLog()
-	go RoutineTick()
+	InitNFTables()
+	go RoutineCleanLogTick()
+	go RoutineCleanCacheTick()
 }

@@ -1,0 +1,59 @@
+{
+	"node_role": "replica",
+	"primary_node": {
+        "admin": {
+            "listen": true,
+            "listen_http": ":9080",
+            "listen_https": ":9443",
+            "portal": "https://your_domain.com:9443/janusec-admin/",
+            "webssh_enabled": false
+        },
+		"database": {
+			"host": "127.0.0.1",
+			"port": "5432",
+			"user": "",
+			"password": "",
+			"dbname": "janusec"
+        },
+        "oauth": {
+            "enabled": false,
+            "provider": "wxwork",
+            "wxwork": {
+                "display_name": "",
+                "callback": "",
+                "corpid": "",
+                "agentid": "",
+                "corpsecret": ""
+            },
+            "dingtalk": {
+                "display_name": "",
+                "callback": "",
+                "appid": "",
+                "appsecret": ""
+            },
+            "feishu": {
+                "display_name": "",
+                "callback": "",
+                "appid": "",
+                "appsecret": ""
+            },
+            "ldap": {
+                "display_name": "",
+                "entrance": "",
+                "address": "",
+                "dn":"",
+                "using_tls": false,
+                "authenticator_enabled": false
+            },
+			"cas2": {
+				"display_name": "",
+				"entrance": "",
+				"callback": ""
+			}
+        }
+	},
+	"replica_node": {
+		"node_key": "node_key_generated_in_node_management",
+		"sync_addr": "http://gateway.primary_node.com:9080/janusec-admin/api"
+	}
+}

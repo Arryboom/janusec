@@ -8,8 +8,10 @@ mkdir -p ${dist_dir}
 \cp -f ./janusec ${dist_dir}
 \cp -f ./3rdpartylicenses.txt ${dist_dir}
 rm -rf ${dist_dir}static
-\cp -f ./robots.txt ./static/
-\cp -r ./static ${dist_dir}
+mkdir ${dist_dir}static
+\cp -r ./static/janusec-admin ${dist_dir}static/
+\cp -r ./static/welcome ${dist_dir}static/
+\cp -f ./robots.txt ${dist_dir}static/
 \cp -f ./scripts/* ${dist_dir}
 cd ./dist/
 tar zcf ./janusec-${version}.tar.gz ./janusec-${version}

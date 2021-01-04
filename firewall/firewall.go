@@ -23,23 +23,38 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/models"
+	"janusec/utils"
 )
 
-var staticSuffix = []string{".js", ".css", ".png", ".jpg", ".gif", ".bmp"}
+var dynamicSuffix = []string{".html", ".htm", ".shtml", ".php", ".jsp", ".aspx", ".asp", ".do", ".cgi", ".cfm"}
+
+//var staticSuffix = []string{".js", ".css", ".png", ".jpg", ".gif", ".ico", ".bmp", ".zip", ".rar", ".tar.gz", ".mp3", ".avi"}
 
 // IsStaticResource ...
-func IsStaticResource(url string) bool {
-	if strings.Contains(url, "?") {
+func IsStaticResource(r *http.Request) bool {
+	//fmt.Println("IsStaticResource", r.Method, r.RequestURI, "Ext=", filepath.Ext(r.RequestURI))
+	if r.Method != "GET" {
 		return false
 	}
-	for _, suffix := range staticSuffix {
-		if strings.HasSuffix(url, suffix) {
-			return true
+	if strings.Contains(r.RequestURI, "?") {
+		//  like /path/to/file?id=1
+		return false
+	}
+	if !strings.Contains(r.RequestURI, ".") {
+		// pseudo static like /articles/12345
+		return false
+	}
+	if filepath.Ext(r.RequestURI) == "" {
+		// /.svn/entries
+		return false
+	}
+	for _, suffix := range dynamicSuffix {
+		if strings.HasSuffix(r.RequestURI, suffix) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // UnEscapeRawValue ...
@@ -58,9 +73,6 @@ func UnEscapeRawValue(rawQuery string) string {
 
 // IsRequestHitPolicy ...
 func IsRequestHitPolicy(r *http.Request, appID int64, srcIP string) (bool, *models.GroupPolicy) {
-	if r.Method == "GET" && IsStaticResource(r.URL.Path) {
-		return false, nil
-	}
 	//fmt.Println("IsForbiddenRequest")
 	ctxMap := r.Context().Value("groupPolicyHitValue").(*sync.Map)
 
@@ -106,7 +118,10 @@ func IsRequestHitPolicy(r *http.Request, appID int64, srcIP string) (bool, *mode
 	mediaType, mediaParams, _ := mime.ParseMediaType(contentType)
 	if strings.HasPrefix(mediaType, "multipart/form-data") {
 		// ChkPoint_UploadFileExt
-		r.ParseMultipartForm(1024)
+		err := r.ParseMultipartForm(1024)
+		if err != nil {
+			utils.DebugPrintln("IsRequestHitPolicy ParseMultipartForm", err)
+		}
 		if r.MultipartForm != nil {
 			for _, filesHeader := range r.MultipartForm.File {
 				for _, fileHeader := range filesHeader {
@@ -138,13 +153,18 @@ func IsRequestHitPolicy(r *http.Request, appID int64, srcIP string) (bool, *mode
 	} else if strings.HasPrefix(mediaType, "application/json") {
 		var params interface{}
 		err := json.Unmarshal(bodyBuf, &params)
-		utils.CheckError("IsRequestHitPolicy Unmarshal", err)
+		if err != nil {
+			utils.DebugPrintln("IsRequestHitPolicy Unmarshal", err)
+		}
 		matched, policy := IsJSONValueHitPolicy(ctxMap, appID, params)
 		if matched == true {
 			return matched, policy
 		}
 	} else {
-		r.ParseForm()
+		err := r.ParseForm()
+		if err != nil {
+			utils.DebugPrintln("IsRequestHitPolicy r.ParseForm", err)
+		}
 	}
 
 	params := r.Form // include GET/POST/ Multipart non-File , but not include json
@@ -240,6 +260,12 @@ func IsRequestHitPolicy(r *http.Request, appID int64, srcIP string) (bool, *mode
 
 // IsResponseHitPolicy ...
 func IsResponseHitPolicy(resp *http.Response, appID int64) (bool, *models.GroupPolicy) {
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		return false, nil
+	}
+	if IsStaticResource(resp.Request) {
+		return false, nil
+	}
 	ctxMap := resp.Request.Context().Value("groupPolicyHitValue").(*sync.Map)
 	// ChkPoint_ResponseStatusCode
 	matched, policy := IsMatchGroupPolicy(ctxMap, appID, strconv.Itoa(resp.StatusCode), models.ChkPointResponseStatusCode, "", false)
@@ -287,6 +313,9 @@ func IsResponseHitPolicy(resp *http.Response, appID int64) (bool, *models.GroupP
 
 // IsJSONValueHitPolicy ...
 func IsJSONValueHitPolicy(ctxMap *sync.Map, appID int64, value interface{}) (bool, *models.GroupPolicy) {
+	if value == nil {
+		return false, nil
+	}
 	valueKind := reflect.TypeOf(value).Kind()
 	switch valueKind {
 	case reflect.String:

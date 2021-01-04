@@ -46,6 +46,11 @@ type RPCApplications struct {
 	Object []*Application `json:"object"`
 }
 
+type RPCVipApps struct {
+	Error  *string   `json:"err"`
+	Object []*VipApp `json:"object"`
+}
+
 type RPCDBDomains struct {
 	Error  *string     `json:"err"`
 	Object []*DBDomain `json:"object"`
@@ -69,4 +74,22 @@ type RPCVulntypes struct {
 type RPCSettings struct {
 	Error  *string    `json:"err"`
 	Object []*Setting `json:"object"`
+}
+
+type RPCOAuthConfig struct {
+	Error  *string      `json:"err"`
+	Object *OAuthConfig `json:"object"`
+}
+
+type RPCTOTP struct {
+	Error  *string `json:"err"`
+	Object *TOTP   `json:"object"`
+}
+
+type RPCStatRequest struct {
+	Action   string      `json:"action"`
+	ObjectID int64       `json:"id"`
+	NodeID   int64       `json:"node_id"`
+	AuthKey  string      `json:"auth_key"`
+	Object   *AccessStat `json:"object"`
 }

@@ -17,27 +17,35 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/usermgmt"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/usermgmt"
+	"janusec/utils"
 )
 
 var (
-	groupPolicies []*models.GroupPolicy
+	groupPolicies = []*models.GroupPolicy{}
 )
 
 // InitGroupPolicy ...
 func InitGroupPolicy() {
 	var dbGroupPolicies []*models.GroupPolicy
-	if data.IsMaster {
-		data.DAL.CreateTableIfNotExistsGroupPolicy()
-		data.DAL.CreateTableIfNotExistCheckItems()
+	if data.IsPrimary {
+		err := data.DAL.CreateTableIfNotExistsGroupPolicy()
+		if err != nil {
+			utils.DebugPrintln("CreateTableIfNotExistsGroupPolicy error", err)
+		}
+		err = data.DAL.CreateTableIfNotExistCheckItems()
+		if err != nil {
+			utils.DebugPrintln("CreateTableIfNotExistCheckItems error", err)
+		}
 		existRegexPolicy := data.DAL.ExistsGroupPolicy()
 		if existRegexPolicy == false {
-			data.DAL.SetIDSeqStartWith("group_policies", 10101)
+			err := data.DAL.SetIDSeqStartWith("group_policies", 10101)
+			if err != nil {
+				utils.DebugPrintln("InitGroupPolicy SetIDSeqStartWith error", err)
+			}
 			curTime := time.Now().Unix()
-
 			groupPolicyID, err := data.DAL.InsertGroupPolicy("Code Leakage", 0, 100, int64(models.ChkPointURLPath), models.Action_Block_100, true, 0, curTime)
 			utils.CheckError("InitGroupPolicy InsertGroupPolicy", err)
 			_, err = data.DAL.InsertCheckItem(models.ChkPointURLPath, models.OperationRegexMatch, "", `(?i)/\.(git|svn)/`, groupPolicyID)
@@ -180,13 +188,22 @@ func GetGroupPolicyIndex(id int64) int {
 }
 
 // DeleteGroupPolicyByID ...
-func DeleteGroupPolicyByID(id int64) error {
+func DeleteGroupPolicyByID(id int64, authUser *models.AuthUser) error {
+	if authUser.IsSuperAdmin == false {
+		return errors.New("Only super administrators can perform this operation")
+	}
 	groupPolicy, err := GetGroupPolicyByID(id)
 	if err != nil {
 		return err
 	}
-	DeleteCheckItemsByGroupPolicy(groupPolicy)
-	data.DAL.DeleteGroupPolicyByID(id)
+	err = DeleteCheckItemsByGroupPolicy(groupPolicy)
+	if err != nil {
+		utils.DebugPrintln("DeleteCheckItemsByGroupPolicy error", err)
+	}
+	err = data.DAL.DeleteGroupPolicyByID(id)
+	if err != nil {
+		utils.DebugPrintln("DeleteGroupPolicyByID error", err)
+	}
 	i := GetGroupPolicyIndex(id)
 	groupPolicies = append(groupPolicies[:i], groupPolicies[i+1:]...)
 	data.UpdateFirewallLastModified()
@@ -194,7 +211,10 @@ func DeleteGroupPolicyByID(id int64) error {
 }
 
 // UpdateGroupPolicy ...
-func UpdateGroupPolicy(r *http.Request, userID int64) (*models.GroupPolicy, error) {
+func UpdateGroupPolicy(r *http.Request, userID int64, authUser *models.AuthUser) (*models.GroupPolicy, error) {
+	if authUser.IsSuperAdmin == false {
+		return nil, errors.New("Only super administrators can perform this operation")
+	}
 	var setGroupPolicyRequest models.RPCSetGroupPolicy
 	err := json.NewDecoder(r.Body).Decode(&setGroupPolicyRequest)
 	defer r.Body.Close()
@@ -214,10 +234,15 @@ func UpdateGroupPolicy(r *http.Request, userID int64) (*models.GroupPolicy, erro
 	curTime := time.Now().Unix()
 	if curGroupPolicy.ID == 0 {
 		newID, err := data.DAL.InsertGroupPolicy(curGroupPolicy.Description, curGroupPolicy.AppID, curGroupPolicy.VulnID, curGroupPolicy.HitValue, curGroupPolicy.Action, curGroupPolicy.IsEnabled, curGroupPolicy.UserID, curTime)
-		utils.CheckError("UpdateGroupPolicy InsertGroupPolicy", err)
+		if err != nil {
+			utils.DebugPrintln("UpdateGroupPolicy InsertGroupPolicy", err)
+		}
 		curGroupPolicy.ID = newID
 		groupPolicies = append(groupPolicies, curGroupPolicy)
-		UpdateCheckItems(curGroupPolicy, checkItems)
+		err = UpdateCheckItems(curGroupPolicy, checkItems)
+		if err != nil {
+			utils.DebugPrintln("UpdateGroupPolicy UpdateCheckItems error", err)
+		}
 	} else {
 		groupPolicy, err := GetGroupPolicyByID(curGroupPolicy.ID)
 		utils.CheckError("UpdateGroupPolicy GetGroupPolicyByID", err)
@@ -230,7 +255,10 @@ func UpdateGroupPolicy(r *http.Request, userID int64) (*models.GroupPolicy, erro
 		groupPolicy.IsEnabled = curGroupPolicy.IsEnabled
 		groupPolicy.UserID = curGroupPolicy.UserID
 		groupPolicy.UpdateTime = curTime
-		UpdateCheckItems(groupPolicy, checkItems)
+		err = UpdateCheckItems(groupPolicy, checkItems)
+		if err != nil {
+			utils.DebugPrintln("UpdateGroupPolicy UpdateCheckItems error", err)
+		}
 	}
 	return curGroupPolicy, nil
 }

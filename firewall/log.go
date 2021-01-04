@@ -14,16 +14,22 @@ import (
 	"net/http/httputil"
 	"time"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
 )
 
 // InitHitLog ...
 func InitHitLog() {
-	if data.IsMaster {
-		data.DAL.CreateTableIfNotExistsGroupHitLog()
-		data.DAL.CreateTableIfNotExistsCCLog()
+	if data.IsPrimary {
+		err := data.DAL.CreateTableIfNotExistsGroupHitLog()
+		if err != nil {
+			utils.DebugPrintln("InitHitLog CreateTableIfNotExistsGroupHitLog error", err)
+		}
+		err = data.DAL.CreateTableIfNotExistsCCLog()
+		if err != nil {
+			utils.DebugPrintln("InitHitLog CreateTableIfNotExistsCCLog error", err)
+		}
 	}
 }
 
@@ -39,8 +45,11 @@ func LogCCRequest(r *http.Request, appID int64, clientIP string, policy *models.
 		maxRawSize = 16384
 	}
 	rawRequest := string(rawRequestBytes[:maxRawSize])
-	if data.IsMaster {
-		data.DAL.InsertCCLog(requestTime, clientIP, r.Host, r.Method, r.URL.Path, r.URL.RawQuery, contentType, r.UserAgent(), cookies, rawRequest, int64(policy.Action), appID)
+	if data.IsPrimary {
+		err = data.DAL.InsertCCLog(requestTime, clientIP, r.Host, r.Method, r.URL.Path, r.URL.RawQuery, contentType, r.UserAgent(), cookies, rawRequest, int64(policy.Action), appID)
+		if err != nil {
+			utils.DebugPrintln("InsertCCLog error", err)
+		}
 	} else {
 		ccLog := &models.CCLog{
 			RequestTime: requestTime,
@@ -71,8 +80,11 @@ func LogGroupHitRequest(r *http.Request, appID int64, clientIP string, policy *m
 		maxRawSize = 16384
 	}
 	rawRequest := string(rawRequestBytes[:maxRawSize])
-	if data.IsMaster {
-		data.DAL.InsertGroupHitLog(requestTime, clientIP, r.Host, r.Method, r.URL.Path, r.URL.RawQuery, contentType, r.UserAgent(), cookies, rawRequest, int64(policy.Action), policy.ID, policy.VulnID, appID)
+	if data.IsPrimary {
+		err = data.DAL.InsertGroupHitLog(requestTime, clientIP, r.Host, r.Method, r.URL.Path, r.URL.RawQuery, contentType, r.UserAgent(), cookies, rawRequest, int64(policy.Action), policy.ID, policy.VulnID, appID)
+		if err != nil {
+			utils.DebugPrintln("InsertGroupHitLog error", err)
+		}
 	} else {
 		regexHitLog := &models.GroupHitLog{
 			RequestTime: requestTime,

@@ -1,6 +1,9 @@
 /.vscode
 /dist
-janusec
-janusec.exe
+/janusec
+/luci
+/config.json
+/log/*
 *.zip
 *.tar.gz
+/static/cdncache

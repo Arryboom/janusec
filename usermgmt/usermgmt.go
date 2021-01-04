@@ -11,8 +11,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
+
 	"github.com/gorilla/sessions"
 )
 
@@ -22,80 +24,84 @@ var (
 
 func IsLogIn(w http.ResponseWriter, r *http.Request) (isLogIn bool, userID int64) {
 	session, _ := store.Get(r, "sessionid")
-	username := session.Values["username"]
-	isLogIn = false
-	userID = 0
-	if username != nil {
-		isLogIn = true
-		userID = session.Values["user_id"].(int64)
+	authUserI := session.Values["authuser"]
+	if authUserI != nil {
+		authUser := authUserI.(models.AuthUser)
+		return true, authUser.UserID
 	}
-	//fmt.Println("IsLogIn:", isLogIn, "Username:", username)
-	return isLogIn, userID
+	return false, 0
 }
 
 func GetAuthUser(w http.ResponseWriter, r *http.Request) (*models.AuthUser, error) {
 	session, _ := store.Get(r, "sessionid")
-	userID := session.Values["user_id"]
-	username := session.Values["username"]
-	need_modify_pwd := session.Values["need_modify_pwd"]
-	if need_modify_pwd == nil {
-		need_modify_pwd = false
+	authUserI := session.Values["authuser"]
+	if authUserI != nil {
+		authUser := authUserI.(models.AuthUser)
+		return &authUser, nil
 	}
-	if username != nil {
-		authUser := &models.AuthUser{UserID: userID.(int64), Username: username.(string), Logged: true, NeedModifyPWD: need_modify_pwd.(bool)}
-		return authUser, nil
-	}
-	return nil, nil
+	return nil, errors.New("Please login")
 }
 
 func Login(w http.ResponseWriter, r *http.Request, param map[string]interface{}) (*models.AuthUser, error) {
 	obj := param["object"].(map[string]interface{})
 	username := obj["username"].(string)
 	password := obj["passwd"].(string)
-	userID, hashpwd, salt, need_modify_pwd := data.DAL.SelectHashPwdAndSalt(username)
+	appUser := data.DAL.SelectAppUserByName(username)
 
-	tmp_hashpwd := data.SHA256Hash(password + salt)
-	//fmt.Printf("Login password=%s salt=%s hashpwd=%s tmp_hashpwd=%s", password, salt, hashpwd, tmp_hashpwd)
-	if tmp_hashpwd == hashpwd {
+	tmpHashpwd := data.SHA256Hash(password + appUser.Salt)
+	if tmpHashpwd == appUser.HashPwd {
+		authUser := &models.AuthUser{
+			UserID:        appUser.ID,
+			Username:      username,
+			Logged:        true,
+			IsSuperAdmin:  appUser.IsSuperAdmin,
+			IsCertAdmin:   appUser.IsCertAdmin,
+			IsAppAdmin:    appUser.IsAppAdmin,
+			NeedModifyPWD: appUser.NeedModifyPWD}
 		session, _ := store.Get(r, "sessionid")
-		session.Values["username"] = username
-		session.Values["user_id"] = userID
-		session.Values["need_modify_pwd"] = need_modify_pwd
-		session.Save(r, w)
-		authUser := &models.AuthUser{Username: username, Logged: true, NeedModifyPWD: need_modify_pwd}
+		session.Values["authuser"] = authUser
+		session.Options = &sessions.Options{Path: "/janusec-admin/", MaxAge: 86400 * 7}
+		err := session.Save(r, w)
+		if err != nil {
+			utils.DebugPrintln("session save error", err)
+		}
 		return authUser, nil
-	} else {
-		return nil, errors.New("Login failed.")
 	}
+	return nil, errors.New("Login failed.")
 }
 
 func Logout(w http.ResponseWriter, r *http.Request) error {
 	session, _ := store.Get(r, "sessionid")
-	session.Values["username"] = nil
-	session.Values["user_id"] = nil
-	session.Values["need_modify_pwd"] = nil
-	session.Save(r, w)
+	session.Values["authuser"] = nil
+	session.Options = &sessions.Options{Path: "/janusec-admin/", MaxAge: 0}
+	err := session.Save(r, w)
+	if err != nil {
+		utils.DebugPrintln("session save error", err)
+	}
 	return nil
 }
 
-func GetAppUsers() ([]*models.AppUser, error) {
-	var appUsers []*models.AppUser
-	query_users := data.DAL.SelectAppUsers()
-	for _, query_user := range query_users {
+func GetAppUsers(authUser *models.AuthUser) ([]*models.AppUser, error) {
+	var appUsers = []*models.AppUser{}
+	queryUsers := data.DAL.SelectAppUsers()
+	for _, queryUser := range queryUsers {
 		appUser := new(models.AppUser)
-		appUser.ID = query_user.ID
-		appUser.Username = query_user.Username
-		if query_user.Email.Valid {
-			appUser.Email = query_user.Email.String
+		appUser.ID = queryUser.ID
+		appUser.Username = queryUser.Username
+		if queryUser.Email.Valid {
+			appUser.Email = queryUser.Email.String
 		} else {
 			appUser.Email = ""
 		}
-		appUser.IsSuperAdmin = query_user.IsSuperAdmin
-		appUser.IsCertAdmin = query_user.IsCertAdmin
-		appUser.IsAppAdmin = query_user.IsAppAdmin
-		appUsers = append(appUsers, appUser)
+		appUser.IsSuperAdmin = queryUser.IsSuperAdmin
+		appUser.IsCertAdmin = queryUser.IsCertAdmin
+		appUser.IsAppAdmin = queryUser.IsAppAdmin
+		if authUser.IsSuperAdmin || authUser.UserID == appUser.ID {
+			appUsers = append(appUsers, appUser)
+		}
 	}
 	return appUsers, nil
+
 }
 
 func GetAdmin(param map[string]interface{}) (*models.AppUser, error) {
@@ -107,23 +113,24 @@ func GetAppUserByID(userID int64) (*models.AppUser, error) {
 	if userID > 0 {
 		appUser := new(models.AppUser)
 		appUser.ID = userID
-		query_user := data.DAL.SelectAppUserByID(userID)
-		appUser.Username = query_user.Username
-		if query_user.Email.Valid {
-			appUser.Email = query_user.Email.String
+		queryUser := data.DAL.SelectAppUserByID(userID)
+		appUser.Username = queryUser.Username
+		if queryUser.Email.Valid {
+			appUser.Email = queryUser.Email.String
 		} else {
 			appUser.Email = ""
 		}
-		appUser.IsSuperAdmin = query_user.IsSuperAdmin
-		appUser.IsCertAdmin = query_user.IsCertAdmin
-		appUser.IsAppAdmin = query_user.IsAppAdmin
+		appUser.IsSuperAdmin = queryUser.IsSuperAdmin
+		appUser.IsCertAdmin = queryUser.IsCertAdmin
+		appUser.IsAppAdmin = queryUser.IsAppAdmin
+		appUser.NeedModifyPWD = queryUser.NeedModifyPWD
 		return appUser, nil
 	} else {
 		return nil, errors.New("id error")
 	}
 }
 
-func UpdateUser(w http.ResponseWriter, r *http.Request, param map[string]interface{}) (*models.AppUser, error) {
+func UpdateUser(w http.ResponseWriter, r *http.Request, param map[string]interface{}, authUser *models.AuthUser) (*models.AppUser, error) {
 	var user = param["object"].(map[string]interface{})
 	var userID = int64(user["id"].(float64))
 	var username = user["username"].(string)
@@ -137,10 +144,14 @@ func UpdateUser(w http.ResponseWriter, r *http.Request, param map[string]interfa
 	if user["email"] != nil {
 		email = user["email"].(string)
 	}
-
-	var isSuperAdmin = user["is_super_admin"].(bool)
-	var isCertAdmin = user["is_cert_admin"].(bool)
-	var isAppAdmin = user["is_app_admin"].(bool)
+	isSuperAdmin := false
+	isCertAdmin := false
+	isAppAdmin := false
+	if authUser.IsSuperAdmin {
+		isSuperAdmin = user["is_super_admin"].(bool)
+		isCertAdmin = user["is_cert_admin"].(bool)
+		isAppAdmin = user["is_app_admin"].(bool)
+	}
 	salt := data.GetRandomSaltString()
 	hashpwd := data.SHA256Hash(password + salt)
 	appUser := new(models.AppUser)
@@ -159,9 +170,14 @@ func UpdateUser(w http.ResponseWriter, r *http.Request, param map[string]interfa
 				return nil, err
 			}
 			session, _ := store.Get(r, "sessionid")
-			session.Values["need_modify_pwd"] = false
-			session.Save(r, w)
-
+			authUser := session.Values["authuser"].(models.AuthUser)
+			authUser.NeedModifyPWD = false
+			session.Values["authuser"] = authUser
+			session.Options = &sessions.Options{Path: "/janusec-admin/", MaxAge: 86400 * 7}
+			err = session.Save(r, w)
+			if err != nil {
+				utils.DebugPrintln("session save error", err)
+			}
 		} else {
 			err := data.DAL.UpdateAppUserNoPwd(username, email, isSuperAdmin, isCertAdmin, isAppAdmin, userID)
 			if err != nil {
@@ -178,7 +194,20 @@ func UpdateUser(w http.ResponseWriter, r *http.Request, param map[string]interfa
 	return appUser, nil
 }
 
-func DeleteUser(userID int64) error {
+func DeleteUser(userID int64, authUser *models.AuthUser) error {
+	if authUser.IsSuperAdmin == false && userID != authUser.UserID {
+		return errors.New("delete others is not permitted")
+	}
 	err := data.DAL.DeleteAppUser(userID)
 	return err
+}
+
+func GetLoginUsername(r *http.Request) string {
+	session, _ := store.Get(r, "sessionid")
+	authUserI := session.Values["authuser"]
+	if authUserI != nil {
+		authUser := authUserI.(models.AuthUser)
+		return authUser.Username
+	}
+	return ""
 }

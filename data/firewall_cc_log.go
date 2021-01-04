@@ -8,18 +8,18 @@
 package data
 
 import (
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/models"
+	"janusec/utils"
 )
 
 const (
-	sqlCreateTableIfNotExistsCCLog = `CREATE TABLE IF NOT EXISTS cc_logs(id bigserial primary key,request_time bigint,client_ip varchar(256),host varchar(256),method varchar(16),url_path varchar(2048),url_query varchar(2048),content_type varchar(128),user_agent varchar(1024),cookies varchar(1024),raw_request varchar(16384),action bigint,app_id bigint)`
-	sqlInsertCCLog                 = `INSERT INTO cc_logs(request_time,client_ip,host,method,url_path,url_query,content_type,user_agent,cookies,raw_request,action,app_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`
-	sqlSelectCCLogByID             = `SELECT id,request_time,client_ip,host,method,url_path,url_query,content_type,user_agent,cookies,raw_request,action,app_id FROM cc_logs WHERE id=$1`
-	sqlSelectSimpleCCLogs          = `SELECT id,request_time,client_ip,host,method,url_path,action,app_id FROM cc_logs WHERE app_id=$1 and request_time between $2 and $3 LIMIT $4 OFFSET $5`
-	sqlSelectCCLogsCount           = `SELECT COUNT(1) FROM cc_logs WHERE app_id=$1 and request_time between $2 and $3`
-	sqlSelectAllCCLogsCount        = `SELECT COUNT(1) FROM cc_logs WHERE request_time between $1 and $2`
-	sqlDeleteCCLogsBeforeTime      = `DELETE FROM cc_logs WHERE request_time<$1`
+	sqlCreateTableIfNotExistsCCLog = `CREATE TABLE IF NOT EXISTS "cc_logs"("id" bigserial primary key,"request_time" bigint,"client_ip" VARCHAR(256) NOT NULL,"host" VARCHAR(256) NOT NULL,"method" VARCHAR(16) NOT NULL,"url_path" VARCHAR(2048) NOT NULL,"url_query" VARCHAR(2048) NOT NULL DEFAULT '',"content_type" VARCHAR(128) NOT NULL DEFAULT '',"user_agent" VARCHAR(1024) NOT NULL DEFAULT '',"cookies" VARCHAR(1024) NOT NULL DEFAULT '',"raw_request" VARCHAR(16384) NOT NULL,"action" bigint,"app_id" bigint)`
+	sqlInsertCCLog                 = `INSERT INTO "cc_logs"("request_time","client_ip","host","method","url_path","url_query","content_type","user_agent","cookies","raw_request","action","app_id") VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`
+	sqlSelectCCLogByID             = `SELECT "id","request_time","client_ip","host","method","url_path","url_query","content_type","user_agent","cookies","raw_request","action","app_id" FROM "cc_logs" WHERE "id"=$1`
+	sqlSelectSimpleCCLogs          = `SELECT "id","request_time","client_ip","host","method","url_path","action","app_id" FROM "cc_logs" WHERE "app_id"=$1 AND "request_time" BETWEEN $2 AND $3 LIMIT $4 OFFSET $5`
+	sqlSelectCCLogsCount           = `SELECT COUNT(1) FROM "cc_logs" WHERE "app_id"=$1 AND "request_time" BETWEEN $2 AND $3`
+	sqlSelectAllCCLogsCount        = `SELECT COUNT(1) FROM "cc_logs" WHERE "request_time" BETWEEN $1 AND $2`
+	sqlDeleteCCLogsBeforeTime      = `DELETE FROM "cc_logs" WHERE "request_time"<$1`
 )
 
 func (dal *MyDAL) DeleteCCLogsBeforeTime(expiredTime int64) error {
@@ -61,7 +61,7 @@ func (dal *MyDAL) SelectCCLogByID(id int64) (*models.CCLog, error) {
 	stmt, err := dal.db.Prepare(sqlSelectCCLogByID)
 	utils.CheckError("SelectCCLogByID Prepare", err)
 	defer stmt.Close()
-	cc_log := new(models.CCLog)
+	cc_log := &models.CCLog{}
 	err = stmt.QueryRow(id).Scan(&cc_log.ID,
 		&cc_log.RequestTime,
 		&cc_log.ClientIP,
@@ -79,16 +79,19 @@ func (dal *MyDAL) SelectCCLogByID(id int64) (*models.CCLog, error) {
 	return cc_log, err
 }
 
-func (dal *MyDAL) SelectCCLogs(appID int64, startTime int64, endTime int64, request_count int64, offset int64) (simpleCCLogs []*models.SimpleCCLog) {
-	stmt, err := dal.db.Prepare(sqlSelectSimpleCCLogs)
-	utils.CheckError("SelectCCLogs Prepare", err)
-	defer stmt.Close()
-	rows, err := stmt.Query(appID, startTime, endTime, request_count, offset)
-	utils.CheckError("SelectCCLogs Query", err)
+func (dal *MyDAL) SelectCCLogs(appID int64, startTime int64, endTime int64, request_count int64, offset int64) []*models.SimpleCCLog {
+	simpleCCLogs := []*models.SimpleCCLog{}
+	rows, err := dal.db.Query(sqlSelectSimpleCCLogs, appID, startTime, endTime, request_count, offset)
+	if err != nil {
+		utils.DebugPrintln("SelectCCLogs Query", err)
+	}
 	defer rows.Close()
 	for rows.Next() {
-		simpleCCLog := new(models.SimpleCCLog)
-		rows.Scan(&simpleCCLog.ID, &simpleCCLog.RequestTime, &simpleCCLog.ClientIP, &simpleCCLog.Host, &simpleCCLog.Method, &simpleCCLog.UrlPath, &simpleCCLog.Action, &simpleCCLog.AppID)
+		simpleCCLog := &models.SimpleCCLog{}
+		err = rows.Scan(&simpleCCLog.ID, &simpleCCLog.RequestTime, &simpleCCLog.ClientIP, &simpleCCLog.Host, &simpleCCLog.Method, &simpleCCLog.UrlPath, &simpleCCLog.Action, &simpleCCLog.AppID)
+		if err != nil {
+			utils.DebugPrintln("SelectCCLogs rows.Scan", err)
+		}
 		simpleCCLogs = append(simpleCCLogs, simpleCCLog)
 	}
 	return simpleCCLogs

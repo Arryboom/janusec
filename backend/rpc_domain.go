@@ -10,20 +10,20 @@ package backend
 import (
 	"encoding/json"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/models"
+	"janusec/utils"
 )
 
 func RPCSelectDomains() (dbDomains []*models.DBDomain) {
 	rpcRequest := &models.RPCRequest{
-		Action: "getdomains", Object: nil}
-	resp, err := data.GetResponse(rpcRequest)
+		Action: "get_domains", Object: nil}
+	resp, err := data.GetRPCResponse(rpcRequest)
 	if err != nil {
 		utils.CheckError("RPCSelectDomains GetResponse", err)
 		return nil
 	}
-	rpcDBDomains := new(models.RPCDBDomains)
+	rpcDBDomains := &models.RPCDBDomains{}
 	err = json.Unmarshal(resp, rpcDBDomains)
 	if err != nil {
 		utils.CheckError("RPCSelectDomains Unmarshal", err)

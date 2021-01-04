@@ -7,22 +7,42 @@
 
 package models
 
+// Config is the format of config.json
 type Config struct {
-	//NodeID     int64            `json:"node_id"`
-	NodeRole   string           `json:"node_role"`
-	MasterNode MasterNodeConfig `json:"master_node"`
-	SlaveNode  SlaveNodeConfig  `json:"slave_node"`
+	NodeRole    string            `json:"node_role"`
+	ListenHTTP  string            `json:"listen_http"`
+	ListenHTTPS string            `json:"listen_https"`
+	PrimaryNode PrimaryNodeConfig `json:"primary_node"`
+	ReplicaNode ReplicaNodeConfig `json:"replica_node"`
 }
 
-type MasterNodeConfig struct {
-	AdminHTTPListen  string   `json:"admin_http_listen"`
-	AdminHTTPSListen string   `json:"admin_https_listen"`
-	Database         DBConfig `json:"database"`
+type OAuthConfig struct {
+	Enabled  bool           `json:"enabled"`
+	Provider string         `json:"provider"`
+	Wxwork   WxworkConfig   `json:"wxwork"`
+	Dingtalk DingtalkConfig `json:"dingtalk"`
+	Feishu   FeishuConfig   `json:"feishu"`
+	LDAP     LDAPConfig     `json:"ldap"`
+	CAS2     CAS2Config     `json:"cas2"`
 }
 
-type SlaveNodeConfig struct {
+type PrimaryNodeConfig struct {
+	Admin    AdminConfig `json:"admin"`
+	Database DBConfig    `json:"database"`
+	OAuth    OAuthConfig `json:"oauth"`
+}
+
+type ReplicaNodeConfig struct {
 	NodeKey  string `json:"node_key"`
 	SyncAddr string `json:"sync_addr"`
+}
+
+type AdminConfig struct {
+	Listen        bool   `json:"listen"`
+	ListenHTTP    string `json:"listen_http"`
+	ListenHTTPS   string `json:"listen_https"`
+	Portal        string `json:"portal"`
+	WebSSHEnabled bool   `json:"webssh_enabled"`
 }
 
 type DBConfig struct {
@@ -34,8 +54,46 @@ type DBConfig struct {
 }
 
 type EncryptedConfig struct {
-	//NodeID     int64            `json:"node_id"`
-	NodeRole   string           `json:"node_role"`
-	MasterNode MasterNodeConfig `json:"master_node"`
-	SlaveNode  SlaveNodeConfig  `json:"slave_node"`
+	NodeRole    string            `json:"node_role"`
+	ListenHTTP  string            `json:"listen_http"`
+	ListenHTTPS string            `json:"listen_https"`
+	PrimaryNode PrimaryNodeConfig `json:"primary_node"`
+	ReplicaNode ReplicaNodeConfig `json:"replica_node"`
+}
+
+type WxworkConfig struct {
+	DisplayName string `json:"display_name"`
+	Callback    string `json:"callback"`
+	CorpID      string `json:"corpid"`
+	AgentID     string `json:"agentid"`
+	CorpSecret  string `json:"corpsecret"`
+}
+
+type DingtalkConfig struct {
+	DisplayName string `json:"display_name"`
+	Callback    string `json:"callback"`
+	AppID       string `json:"appid"`
+	AppSecret   string `json:"appsecret"`
+}
+
+type FeishuConfig struct {
+	DisplayName string `json:"display_name"`
+	Callback    string `json:"callback"`
+	AppID       string `json:"appid"`
+	AppSecret   string `json:"appsecret"`
+}
+
+type CAS2Config struct {
+	DisplayName string `json:"display_name"`
+	Entrance    string `json:"entrance"`
+	Callback    string `json:"callback"`
+}
+
+type LDAPConfig struct {
+	DisplayName          string `json:"display_name"`
+	Entrance             string `json:"entrance"`
+	Address              string `json:"address"`
+	DN                   string `json:"dn"`
+	UsingTLS             bool   `json:"using_tls"`
+	AuthenticatorEnabled bool   `json:"authenticator_enabled"`
 }

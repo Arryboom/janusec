@@ -8,7 +8,7 @@
 package models
 
 import (
-	"time"
+	"database/sql"
 )
 
 type PolicyAction int64
@@ -21,15 +21,15 @@ const (
 )
 
 type CCPolicy struct {
-	AppID           int64         `json:"app_id"` // Global Policy set app_id=0
-	IntervalSeconds time.Duration `json:"interval_seconds"`
-	MaxCount        int64         `json:"max_count"`
-	BlockSeconds    time.Duration `json:"block_seconds"`
-	Action          PolicyAction  `json:"action"`
-	StatByURL       bool          `json:"stat_by_url"`
-	StatByUserAgent bool          `json:"stat_by_ua"`
-	StatByCookie    bool          `json:"stat_by_cookie"`
-	IsEnabled       bool          `json:"is_enabled"`
+	AppID                int64        `json:"app_id"` // Global Policy set app_id=0
+	IntervalMilliSeconds float64      `json:"interval_milliseconds"`
+	MaxCount             int64        `json:"max_count"`
+	BlockSeconds         float64      `json:"block_seconds"`
+	Action               PolicyAction `json:"action"`
+	StatByURL            bool         `json:"stat_by_url"`
+	StatByUserAgent      bool         `json:"stat_by_ua"`
+	StatByCookie         bool         `json:"stat_by_cookie"`
+	IsEnabled            bool         `json:"is_enabled"`
 }
 
 type ChkPoint int64
@@ -105,20 +105,33 @@ type CheckItem struct {
 	GroupPolicy   *GroupPolicy `json:"-"`
 }
 
-/*
 type DBCheckItem struct {
-	ID            int64    `json:"id"`
-	CheckPoint    ChkPoint `json:"check_point"`
-	KeyName       string   `json:"key_name"`
-	RegexPolicy   string   `json:"regex_policy"`
-	GroupPolicyID int64    `json:"group_policy_id"`
+	ID            int64
+	CheckPoint    ChkPoint
+	Operation     Operation
+	KeyName       sql.NullString
+	RegexPolicy   string
+	GroupPolicyID int64
 }
-*/
 
+// ClientStat used for CC statistics
 type ClientStat struct {
-	Count         int64
-	IsBlackIP     bool
-	RemainSeconds time.Duration
+	// QuickCount used for high frequency CC
+	QuickCount int64
+
+	// SlowCount used for low frequency CC
+	SlowCount int64
+
+	// TimeFrameCount used for low frequency CC
+	// and how many high frequency time frames in stat
+	// Usually, a slow time frame is about 15~30 quick time frames
+	TimeFrameCount int64
+
+	// IsBadIP means CC detected
+	IsBadIP bool
+
+	// RemainSeconds used for block time frame
+	RemainSeconds float64 //time.Duration
 }
 
 type VulnType struct {

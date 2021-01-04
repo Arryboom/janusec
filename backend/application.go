@@ -9,19 +9,23 @@ package backend
 
 import (
 	"errors"
+	"hash/fnv"
+	"net/http"
+	"path/filepath"
 	"strings"
-	"time"
+	"sync"
 
-	"github.com/Janusec/janusec/data"
-	"github.com/Janusec/janusec/firewall"
-	"github.com/Janusec/janusec/models"
-	"github.com/Janusec/janusec/utils"
+	"janusec/data"
+	"janusec/firewall"
+	"janusec/models"
+	"janusec/utils"
 )
 
-var (
-	Apps []*models.Application
-)
+// Apps i.e. all web applications
+var Apps = []*models.Application{}
 
+// SelectDestination deprecated from v0.9.8
+/*
 func SelectDestination(app *models.Application) string {
 	destLen := len(app.Destinations)
 	var dest *models.Destination
@@ -32,8 +36,72 @@ func SelectDestination(app *models.Application) string {
 		destIndex := ns % len(app.Destinations)
 		dest = app.Destinations[destIndex]
 	}
-	utils.DebugPrintln("SelectDestination", dest)
+	//utils.DebugPrintln("SelectDestination", dest)
 	return dest.Destination
+}
+*/
+
+// SelectBackendRoute will replace SelectDestination
+func SelectBackendRoute(app *models.Application, r *http.Request, srcIP string) *models.Destination {
+	routePath := utils.GetRoutePath(r.URL.Path)
+	var dests []*models.Destination
+	var onlineDests = []*models.Destination{}
+	hit := false
+	if routePath != "/" {
+		// First check /abc/
+		valueI, ok := app.Route.Load(routePath)
+		if ok {
+			hit = true
+			dests = valueI.([]*models.Destination)
+		}
+	}
+
+	if !hit {
+		// Second check .php
+		ext := filepath.Ext(r.URL.Path)
+		valueI, ok := app.Route.Load(ext)
+		// Third check /
+		if !ok {
+			valueI, ok = app.Route.Load("/")
+		}
+		if !ok {
+			// lack of route /
+			return nil
+		}
+		dests = valueI.([]*models.Destination)
+	}
+
+	// get online destinations
+	for _, dest := range dests {
+		if dest.Online {
+			onlineDests = append(onlineDests, dest)
+		}
+	}
+
+	destLen := uint32(len(onlineDests))
+	if destLen == 0 {
+		return nil
+	}
+	var dest *models.Destination
+	if destLen == 1 {
+		dest = onlineDests[0]
+	} else if destLen > 1 {
+		// According to Hash(IP+UA)
+		h := fnv.New32a()
+		_, err := h.Write([]byte(srcIP + r.UserAgent()))
+		if err != nil {
+			utils.DebugPrintln("SelectBackendRoute h.Write", err)
+		}
+		hashUInt32 := h.Sum32()
+		destIndex := hashUInt32 % destLen
+		dest = onlineDests[destIndex]
+	}
+	if dest.RouteType == models.ReverseProxyRoute {
+		if dest.RequestRoute != dest.BackendRoute {
+			r.URL.Path = strings.Replace(r.URL.Path, dest.RequestRoute, dest.BackendRoute, 1)
+		}
+	}
+	return dest
 }
 
 func GetApplicationByID(appID int64) (*models.Application, error) {
@@ -61,7 +129,9 @@ func GetApplicationByDomain(domain string) *models.Application {
 	}
 	wildDomain := GetWildDomainName(domain) // *.janusec.com
 	if domainRelation, ok := DomainsMap.Load(wildDomain); ok {
-		app := domainRelation.(models.DomainRelation).App //DomainsMap[domain].App
+		domainRelation2 := domainRelation.(models.DomainRelation)
+		app := domainRelation2.App //DomainsMap[domain].App
+		DomainsMap.Store(domain, models.DomainRelation{App: app, Cert: domainRelation2.Cert, Redirect: false, Location: ""})
 		return app
 	}
 	return nil
@@ -69,22 +139,29 @@ func GetApplicationByDomain(domain string) *models.Application {
 
 func LoadApps() {
 	Apps = Apps[0:0]
-	if data.IsMaster {
+	if data.IsPrimary {
 		dbApps := data.DAL.SelectApplications()
 		for _, dbApp := range dbApps {
 			app := &models.Application{ID: dbApp.ID,
 				Name:           dbApp.Name,
 				InternalScheme: dbApp.InternalScheme,
-				RedirectHttps:  dbApp.RedirectHttps,
+				RedirectHTTPS:  dbApp.RedirectHTTPS,
 				HSTSEnabled:    dbApp.HSTSEnabled,
 				WAFEnabled:     dbApp.WAFEnabled,
 				ClientIPMethod: dbApp.ClientIPMethod,
 				Description:    dbApp.Description,
-				Destinations:   []*models.Destination{}}
+				Destinations:   []*models.Destination{},
+				Route:          sync.Map{},
+				OAuthRequired:  dbApp.OAuthRequired,
+				SessionSeconds: dbApp.SessionSeconds,
+				Owner:          dbApp.Owner,
+				CSPEnabled:     dbApp.CSPEnabled,
+				CSP:            dbApp.CSP,
+			}
 			Apps = append(Apps, app)
 		}
 	} else {
-		// Slave
+		// Replica
 		rpcApps := RPCSelectApplications()
 		if rpcApps != nil {
 			Apps = rpcApps
@@ -93,31 +170,36 @@ func LoadApps() {
 }
 
 func LoadDestinations() {
-	for i, _ := range Apps {
-		app := Apps[i]
+	for _, app := range Apps {
 		app.Destinations = data.DAL.SelectDestinationsByAppID(app.ID)
-	}
-}
-
-/*
-func LoadStaticDirs() {
-	for i,_ := range Apps {
-		app := Apps[i]
-		rows,err := DB.Query("select directory from staticdirs where appID=$1", app.ID)
-		utils.CheckError(err)
-		for rows.Next() {
-			var directory string
-			err = rows.Scan(&directory)
-			utils.CheckError(err)
-			app.StaticDirs = append(app.StaticDirs, directory)
+		for _, dest := range app.Destinations {
+			routeI, ok := app.Route.Load(dest.RequestRoute)
+			var route []*models.Destination
+			if ok {
+				route = routeI.([]*models.Destination)
+			}
+			route = append(route, dest)
+			app.Route.Store(dest.RequestRoute, route)
 		}
 	}
 }
-*/
+
+func LoadRoute() {
+	for _, app := range Apps {
+		for _, dest := range app.Destinations {
+			routeI, ok := app.Route.Load(dest.RequestRoute)
+			var route []*models.Destination
+			if ok {
+				route = routeI.([]*models.Destination)
+			}
+			route = append(route, dest)
+			app.Route.Store(dest.RequestRoute, route)
+		}
+	}
+}
 
 func LoadAppDomainNames() {
-	for i, _ := range Apps {
-		app := Apps[i]
+	for _, app := range Apps {
 		for _, domain := range Domains {
 			if domain.AppID == app.ID {
 				app.Domains = append(app.Domains, domain)
@@ -126,35 +208,82 @@ func LoadAppDomainNames() {
 	}
 }
 
-func GetApplications() ([]*models.Application, error) {
-	return Apps, nil
+func GetApplications(authUser *models.AuthUser) ([]*models.Application, error) {
+	if authUser.IsAppAdmin {
+		return Apps, nil
+	}
+	myApps := []*models.Application{}
+	for _, app := range Apps {
+		if app.Owner == authUser.Username {
+			myApps = append(myApps, app)
+		}
+	}
+	return myApps, nil
 }
 
 func UpdateDestinations(app *models.Application, destinations []interface{}) {
-	for _, appDest := range app.Destinations {
+	//fmt.Println("ToDo UpdateDestinations")
+	for _, dest := range app.Destinations {
 		// delete outdated destinations from DB
-		if !InterfaceContainsDestinationID(destinations, appDest.ID) {
-			data.DAL.DeleteDestinationByID(appDest.ID)
+		if !InterfaceContainsDestinationID(destinations, dest.ID) {
+			app.Route.Delete(dest.RequestRoute)
+			err := data.DAL.DeleteDestinationByID(dest.ID)
+			if err != nil {
+				utils.DebugPrintln("DeleteDestinationByID", err)
+			}
 		}
 	}
-	var newDestinations []*models.Destination
+	var newDestinations = []*models.Destination{}
 	for _, destinationInterface := range destinations {
 		// add new destinations to DB and app
 		destMap := destinationInterface.(map[string]interface{})
 		destID := int64(destMap["id"].(float64))
+		routeType := int64(destMap["route_type"].(float64))
+		requestRoute := strings.TrimSpace(destMap["request_route"].(string))
+		backendRoute := strings.TrimSpace(destMap["backend_route"].(string))
 		destDest := strings.TrimSpace(destMap["destination"].(string))
 		appID := app.ID //int64(destMap["appID"].(float64))
 		nodeID := int64(destMap["node_id"].(float64))
+		var err error
 		if destID == 0 {
-			destID, _ = data.DAL.InsertDestination(destDest, appID, nodeID)
+			destID, err = data.DAL.InsertDestination(routeType, requestRoute, backendRoute, destDest, appID, nodeID)
+			if err != nil {
+				utils.DebugPrintln("InsertDestination", err)
+			}
 		} else {
-			data.DAL.UpdateDestinationNode(destDest, appID, nodeID, destID)
+			err = data.DAL.UpdateDestinationNode(routeType, requestRoute, backendRoute, destDest, appID, nodeID, destID)
+			if err != nil {
+				utils.DebugPrintln("UpdateDestinationNode", err)
+			}
 		}
-		dest := &models.Destination{ID: destID, Destination: destDest, AppID: appID, NodeID: nodeID}
+		dest := &models.Destination{
+			ID:           destID,
+			RouteType:    models.RouteType(routeType),
+			RequestRoute: requestRoute,
+			BackendRoute: backendRoute,
+			Destination:  destDest,
+			AppID:        appID,
+			NodeID:       nodeID,
+			Online:       true,
+		}
 		newDestinations = append(newDestinations, dest)
 	}
 	app.Destinations = newDestinations
-	//fmt.Printf("Now Destinations: %v\n", app.Destinations)
+
+	// Update Route Map
+	app.Route.Range(func(key, value interface{}) bool {
+		app.Route.Delete(key)
+		return true
+	})
+	for _, dest := range app.Destinations {
+		routeI, ok := app.Route.Load(dest.RequestRoute)
+		var route []*models.Destination
+		if ok {
+			route = routeI.([]*models.Destination)
+		}
+		route = append(route, dest)
+		app.Route.Store(dest.RequestRoute, route)
+	}
 }
 
 func UpdateAppDomains(app *models.Application, appDomains []interface{}) {
@@ -167,7 +296,11 @@ func UpdateAppDomains(app *models.Application, appDomains []interface{}) {
 	}
 	for _, oldDomain := range app.Domains {
 		if !InterfaceContainsDomainID(appDomains, oldDomain.ID) {
-			data.DAL.DeleteDomainByDomainID(oldDomain.ID)
+			DomainsMap.Delete(oldDomain.Name)
+			err := data.DAL.DeleteDomainByDomainID(oldDomain.ID)
+			if err != nil {
+				utils.DebugPrintln("UpdateAppDomains DeleteDomainByDomainID", err)
+			}
 		}
 	}
 	app.Domains = newAppDomains
@@ -187,34 +320,56 @@ func UpdateApplication(param map[string]interface{}) (*models.Application, error
 	if description, ok = application["description"].(string); !ok {
 		description = ""
 	}
+	oauthRequired := application["oauth_required"].(bool)
+	sessionSeconds := int64(application["session_seconds"].(float64))
+	cspEnabled := application["csp_enabled"].(bool)
+	var csp string
+	if csp, ok = application["csp"].(string); !ok {
+		csp = ""
+	}
+	owner := application["owner"].(string)
 	var app *models.Application
 	if appID == 0 {
 		// new application
-		newID := data.DAL.InsertApplication(appName, internalScheme, redirectHttps, hstsEnabled, wafEnabled, ipMethod, description)
+		newID := data.DAL.InsertApplication(appName, internalScheme, redirectHttps, hstsEnabled, wafEnabled, ipMethod, description, oauthRequired, sessionSeconds, owner, cspEnabled, csp)
 		app = &models.Application{
 			ID: newID, Name: appName,
 			InternalScheme: internalScheme,
-			Destinations:   []*models.Destination{},
+			//Destinations:   []*models.Destination{},
+			Route:          sync.Map{},
 			Domains:        []*models.Domain{},
-			RedirectHttps:  redirectHttps,
+			RedirectHTTPS:  redirectHttps,
 			HSTSEnabled:    hstsEnabled,
 			WAFEnabled:     wafEnabled,
 			ClientIPMethod: ipMethod,
-			Description:    description}
+			Description:    description,
+			OAuthRequired:  oauthRequired,
+			SessionSeconds: sessionSeconds,
+			Owner:          owner,
+			CSPEnabled:     cspEnabled,
+			CSP:            csp}
 		Apps = append(Apps, app)
 	} else {
 		app, _ = GetApplicationByID(appID)
 		if app != nil {
-			data.DAL.UpdateApplication(appName, internalScheme, redirectHttps, hstsEnabled, wafEnabled, ipMethod, description, appID)
+			err := data.DAL.UpdateApplication(appName, internalScheme, redirectHttps, hstsEnabled, wafEnabled, ipMethod, description, oauthRequired, sessionSeconds, owner, cspEnabled, csp, appID)
+			if err != nil {
+				utils.DebugPrintln("UpdateApplication", err)
+			}
 			app.Name = appName
 			app.InternalScheme = internalScheme
-			app.RedirectHttps = redirectHttps
+			app.RedirectHTTPS = redirectHttps
 			app.HSTSEnabled = hstsEnabled
 			app.WAFEnabled = wafEnabled
 			app.ClientIPMethod = ipMethod
 			app.Description = description
+			app.OAuthRequired = oauthRequired
+			app.SessionSeconds = sessionSeconds
+			app.Owner = owner
+			app.CSPEnabled = cspEnabled
+			app.CSP = csp
 		} else {
-			return nil, errors.New("Application not found.")
+			return nil, errors.New("application not found")
 		}
 	}
 	destinations := application["destinations"].([]interface{})
@@ -235,19 +390,26 @@ func GetApplicationIndex(appID int64) int {
 }
 
 func DeleteDestinationsByApp(appID int64) {
-	data.DAL.DeleteDestinationsByAppID(appID)
+	err := data.DAL.DeleteDestinationsByAppID(appID)
+	if err != nil {
+		utils.DebugPrintln("DeleteDestinationsByAppID", err)
+	}
 }
 
-func DeleteApplicationByID(appID int64) error {
+func DeleteApplicationByID(appID int64, authUser *models.AuthUser) error {
 	app, err := GetApplicationByID(appID)
 	if err != nil {
 		return err
 	}
 	DeleteDomainsByApp(app)
 	DeleteDestinationsByApp(appID)
-	firewall.DeleteCCPolicyByAppID(appID)
+	err = firewall.DeleteCCPolicyByAppID(appID, authUser, false)
+	if err != nil {
+		utils.DebugPrintln("DeleteApplicationByID DeleteCCPolicyByAppID", err)
+	}
 	err = data.DAL.DeleteApplication(appID)
 	if err != nil {
+		utils.DebugPrintln("DeleteApplicationByID DeleteApplication", err)
 		return err
 	}
 	i := GetApplicationIndex(appID)
