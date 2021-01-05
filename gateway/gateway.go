@@ -62,16 +62,24 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		decChan <- 1
 	}()
 	// r.Host may has the format: domain:port, first remove port
+	//utils.DebugPrintln("app.r.host1",r.Host)
+	hosts :=r.Host
 	index := strings.IndexByte(r.Host, ':')
+	onlyhost :=r.Host
 	if index > 0 {
-		r.Host = r.Host[0:index]
+		//r.Host = r.Host[0:index]
+		onlyhost=r.Host[0:index]
+		//#####################
+		//utils.DebugPrintln("app.r.host",r.Host)
+		//utils.DebugPrintln("app.r.remoteaddr",r.RemoteAddr)
+		//utils.DebugPrintln("app.r.reqaddr",r.RequestURI)
 	}
-	domain := backend.GetDomainByName(r.Host)
+	domain := backend.GetDomainByName(onlyhost)
 	if domain != nil && domain.Redirect == true {
 		RedirectRequest(w, r, domain.Location)
 		return
 	}
-	app := backend.GetApplicationByDomain(r.Host)
+	app := backend.GetApplicationByDomain(onlyhost)
 	if app == nil {
 		// Static Web site
 		staticHandler := http.FileServer(http.Dir("./static/welcome"))
@@ -89,8 +97,8 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.URL.Scheme = app.InternalScheme
-	r.URL.Host = r.Host
-
+	r.URL.Host = hosts
+	utils.DebugPrintln("101_newPath", r.URL.Host)
 	nowTimeStamp := time.Now().Unix()
 	// dynamic
 	srcIP := GetClientIP(r, app)
@@ -171,8 +179,11 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		var url string
 		if r.TLS != nil {
 			url = "https://" + r.Host + r.URL.Path
+			//url = "https://" + hosts + r.URL.Path
+			//.DebugPrintln("app.OAuthRequiredSSL",url)
 		} else {
 			url = r.URL.String()
+			//utils.DebugPrintln("app.OAuthRequired",url)
 		}
 		//fmt.Println("1000", usernameI, url)
 		if usernameI == nil {
@@ -231,6 +242,7 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				http.Redirect(w, r, entranceURL, http.StatusTemporaryRedirect)
+				utils.DebugPrintln("GATEWAY_entranceURL",entranceURL)
 				return
 			}
 			session.Values["userid"] = oauthState.UserID
@@ -252,6 +264,10 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dest := backend.SelectBackendRoute(app, r, srcIP)
+	//dest.BackendRoute
+	utils.DebugPrintln("267_dest", dest.BackendRoute)
+	utils.DebugPrintln("267_dest", dest.Destination)
+	utils.DebugPrintln("267_dest", dest.RequestRoute)
 	if dest == nil {
 		errInfo := &models.InternalErrorInfo{
 			Description: "Internal Servers Offline",
@@ -287,6 +303,8 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		connFactory := gofast.SimpleConnFactory("tcp", dest.Destination)
 		urlPath := utils.GetRoutePath(r.URL.Path)
 		newPath := r.URL.Path
+		utils.DebugPrintln("302_newPath", newPath)
+		utils.DebugPrintln("302_urlPath", urlPath)
 		if urlPath != "/" {
 			newPath = strings.Replace(r.URL.Path, dest.RequestRoute, "/", 1)
 		}
@@ -330,7 +348,7 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			cfg := &tls.Config{
-				ServerName:         r.Host,
+				ServerName:         onlyhost,
 				NextProtos:         []string{"h2", "http/1.1"},
 				MinVersion:         tls.VersionTLS12,
 				InsecureSkipVerify: true,
@@ -356,6 +374,7 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		if rangeValue == "" {
 			staticRoot := fmt.Sprintf("./static/cdncache/%d", app.ID)
 			targetFile := staticRoot + r.URL.Path
+			utils.DebugPrintln("370",targetFile)
 			// Check Static Cache
 			fi, err := os.Stat(targetFile)
 			if err == nil {
@@ -366,7 +385,10 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 				pastSeconds := now.Unix() - fiStat.Ctim.Sec
 				if pastSeconds > 1800 {
 					// check update
+					utils.DebugPrintln("381",r.RequestURI)
+					//
 					backendAddr := fmt.Sprintf("%s://%s%s", app.InternalScheme, dest.Destination, r.RequestURI)
+					utils.DebugPrintln("381",backendAddr)
 					req, err := http.NewRequest("GET", backendAddr, nil)
 					if err != nil {
 						utils.DebugPrintln("Check Update NewRequest", err)
@@ -426,6 +448,7 @@ func ReverseHandlerFunc(w http.ResponseWriter, r *http.Request) {
 		//utils.CheckError("ReverseHandlerFunc DumpRequest", err)
 		//fmt.Println(string(dump))
 	}
+	r.Host=onlyhost
 	proxy.ServeHTTP(w, r)
 }
 

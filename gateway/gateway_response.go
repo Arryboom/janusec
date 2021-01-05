@@ -29,20 +29,27 @@ import (
 
 func rewriteResponse(resp *http.Response) (err error) {
 	r := resp.Request
+	//app := backend.GetApplicationByDomain(r.Host)
 	app := backend.GetApplicationByDomain(r.Host)
+	///r.host
 	locationURL, err := resp.Location()
+	utils.DebugPrintln("33_gw_res_locationURL",locationURL)
 	if locationURL != nil {
 		port := locationURL.Port()
+		utils.DebugPrintln("35_gw_res_port",port)
 		if (port != "80") && (port != "443") {
 			host := locationURL.Hostname()
+			utils.DebugPrintln("37_gw_res_host",host)
 			//app := backend.GetApplicationByDomain(host)
 			if app != nil {
-				newLocation := strings.Replace(locationURL.String(), host+":"+port, host, -1)
+				//newLocation := strings.Replace(locationURL.String(), host+":"+port, host, -1)
+				newLocation :=locationURL.String()
 				userScheme := "http"
 				if resp.Request.TLS != nil {
 					userScheme = "https"
 				}
 				newLocation = strings.Replace(newLocation, locationURL.Scheme, userScheme, 1)
+				utils.DebugPrintln("46_gw_res",newLocation)
 				resp.Header.Set("Location", newLocation)
 			}
 		}

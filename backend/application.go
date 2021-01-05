@@ -96,9 +96,14 @@ func SelectBackendRoute(app *models.Application, r *http.Request, srcIP string) 
 		destIndex := hashUInt32 % destLen
 		dest = onlineDests[destIndex]
 	}
+	///
+	utils.DebugPrintln("app.backend.appreqr",dest.RequestRoute)
+	utils.DebugPrintln("app.backend.appbakr",dest.BackendRoute)
+	//
 	if dest.RouteType == models.ReverseProxyRoute {
 		if dest.RequestRoute != dest.BackendRoute {
 			r.URL.Path = strings.Replace(r.URL.Path, dest.RequestRoute, dest.BackendRoute, 1)
+			utils.DebugPrintln("app.backend.urlpath",r.URL.Path)
 		}
 	}
 	return dest

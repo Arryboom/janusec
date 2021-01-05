@@ -17,7 +17,7 @@ import (
 
 var (
 	logger *log.Logger
-	Debug  = false
+	Debug  = true
 )
 
 func CheckError(msg string, err error) {
@@ -52,7 +52,8 @@ func GetRoutePath(path string) string {
 // DebugPrintln used for log of error
 func DebugPrintln(a ...interface{}) {
 	if Debug {
-		log.Println(a)
+		//log.Println(a)
+		logger.Println(a)
 	} else {
 		logger.Println(a)
 	}
